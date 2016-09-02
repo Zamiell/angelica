@@ -1,0 +1,14 @@
+{
+  "name": "angelica",
+  "version": "1.0.0",
+  "description": "a pretty girl",
+  "main": "angelica.js",
+  "scripts": {
+    "start": "node angelica.js"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "tmi.js": "*"
+  }
+}
