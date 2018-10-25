@@ -7,5 +7,7 @@ She's a real girl.
 Setup
 -----
 
-`apt install python python-pip`
-`pip install cobe`
+```
+apt install python python-pip
+pip install cobe
+```
