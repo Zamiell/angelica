@@ -1,22 +1,22 @@
-'use strict';
-
 // Imports
-const tmi  = require('tmi.js');                  // The bot uses the tmi-js library to connect to Twitch
-const fs   = require('fs');                      // For getting passwords
-const exec = require('child_process').spawnSync; // For interacting with the brain
+const twitch = require('twitch-js');
+const fs = require('fs');
+const path = require('path');
+const exec = require('child_process').spawnSync;
+const winston = require('winston'); // A logging library
+
+// Import the environment variables defined in the ".env" file
+require('dotenv').config();
 
 // General configuration
-var botDirectory = '/root/angelica';
-var botName = 'Angelica_E';
-var channelUserList = [
+const botDirectory = '/root/angelica';
+const channelUserList = [
     '#zamiell',
     '#thalen22',
     '#stoneagemarcus',
     '#lexicalpedant',
-    '#sednegi',
-    '#skylawinters',
 ];
-var ignoreList = [
+const ignoreList = [
     'nightbot',
     'zamielbot',
     'sneewo',
@@ -24,16 +24,27 @@ var ignoreList = [
     'lexicalbot',
     'mikuia',
     'stoneage_bot',
-    'moobot',
-    'isaacracingplus',
 ];
-var incubationList = [
-    'sednegi',
+const incubationList = [
+    '#stoneagemarcus',
 ];
 
+// Set up logging
+const logger = winston.createLogger({
+    transports: [
+        new winston.transports.Console({
+            format: winston.format.combine(
+                winston.format.timestamp({
+                    format: 'ddd MMM DD HH:mm:ss YYYY',
+                }),
+                winston.format.printf(info => `${info.timestamp} - ${info.level.toUpperCase()} - ${info.message}`),
+            ),
+        }),
+    ],
+});
+
 // Twitch configuration
-let oauth = fs.readFileSync(botDirectory + '/passwords/Twitch.txt', 'utf8').trim();
-var TwitchBot = new tmi.client({
+const TwitchBot = new twitch.client({ // eslint-disable-line new-cap
     options: {
         debug: true,
     },
@@ -41,64 +52,52 @@ var TwitchBot = new tmi.client({
         reconnect: true,
     },
     identity: {
-        username: botName,
-        password: oauth,
+        username: process.env.TWITCH_USERNAME,
+        password: process.env.TWITCH_OAUTH,
     },
     channels: channelUserList,
 });
 
+// Welcome message
+logger.info('+--------------------+');
+logger.info('| Angelica starting. |');
+logger.info('+--------------------+');
+
 // Start the server
-let datetime = new Date();
-console.log('----- STARTING ANGELTICA @ ' + datetime + ' for ' + 1 + 'users! -----');
 TwitchBot.connect();
 
-// General purpose functions
-function error(message) {
-    let datetime = new Date();
-    message = datetime + ' - ' + message;
-    console.error(message);
-    console.log(message);
-}
-
 // Catch chat messages
-TwitchBot.on('chat', function(channel, user, message, self) {
+TwitchBot.on('chat', (channel, user, rawMessage, self) => {
     // Local variables
-    let cmd;
-
-    // Since user is an object containing various things, just make it equal to the username for simplicity
-    user = user.username; // See: https://www.tmijs.org/docs/Events.md#chat
+    const username = user.username; // See: https://www.tmijs.org/docs/Events.md#chat
 
     // Ignore messages that we sent
-    if (user.toLowerCase() === botName.toLowerCase()) {
+    if (username.toLowerCase() === process.env.TWITCH_USERNAME.toLowerCase()) {
         return;
     }
 
     // Ignore messages from other bots
     for (let i = 0; i < ignoreList.length; i++) {
-        if (user.toLowerCase() === ignoreList[i]) {
+        if (username.toLowerCase() === ignoreList[i]) {
             return;
         }
     }
 
     // Ignore people typing commands
-    if (message.substring(0, 1) === '!') {
+    if (rawMessage.substring(0, 1) === '!') {
         return;
     }
 
     // Remove whitespace from both sides of the string
-    message = message.trim();
+    const message = rawMessage.trim();
 
     // Log all messages
-    let datetime = new Date();
-    console.log(datetime + ' - TWITCH [' + channel + '] <' + user + '> ' + message);
+    logger.info(`[${channel}] <${username}> ${message}`);
 
     // Add the message to the brain
-    let brain = channel.match(/#(.+)/)[1];
-    cmd = botDirectory + '/scripts/teach-brain.py';
-    exec(cmd, [brain, message]);
-
-    // Add the message to the brain backup
-    //fs.appendFileSync(botDirectory + '/brains/' + brain + '-log.txt', message + '\n');
+    const brain = channel.match(/#(.+)/)[1];
+    const teachBrainPath = path.join(botDirectory, 'scripts', 'teach-brain.py');
+    exec(teachBrainPath, [brain, message]);
 
     // Return if we are in incubation mode
     if (incubationList.indexOf(channel) !== -1) {
@@ -119,19 +118,20 @@ TwitchBot.on('chat', function(channel, user, message, self) {
     }
 
     // Generate a response from the brain
-    cmd = botDirectory + '/scripts/get-response.py';
-    exec(cmd, [brain, message]);
+    const getResponseScriptPath = path.join(botDirectory, 'scripts', 'get-response.py');
+    exec(getResponseScriptPath, [brain, message]);
 
     // Read what the response was
-    let response = fs.readFileSync(botDirectory + '/brains/' + brain + '-response.txt', 'utf8');
+    const responseOutputPath = path.join(botDirectory, 'brains', `${brain}-response.txt`);
+    let response = fs.readFileSync(responseOutputPath, 'utf8');
 
     // Replace any instances of Angelica with the name of the user that talked
     response = response.replace(/(angelica_e|angelica)/ig, user);
 
     // Replace any instance of "@username" with the name of the user that talked
-    let m = response.match(/@([a-zA-Z0-9_]{4,25})/); // From: https://www.reddit.com/r/Twitch/comments/32w5b2/username_requirements/
+    const m = response.match(/@([a-zA-Z0-9_]{4,25})/); // From: https://www.reddit.com/r/Twitch/comments/32w5b2/username_requirements/
     if (m) {
-        let person = m[1];
+        const person = m[1];
 
         // Check to see if they are in the channel
         if (channelUserList[channel].indexOf(person) === -1) {
@@ -144,13 +144,13 @@ TwitchBot.on('chat', function(channel, user, message, self) {
 });
 
 // Catch the list of names when we join a channel
-TwitchBot.on('names', function(channel, users) {
+TwitchBot.on('names', (channel, users) => {
     // Keep track of the people in this channel
     channelUserList[channel] = users;
 });
 
 // Catch when when someone joins a channel
-TwitchBot.on('join', function(channel, username, self) {
+TwitchBot.on('join', (channel, username, self) => {
     if (self) {
         return;
     }
@@ -160,16 +160,16 @@ TwitchBot.on('join', function(channel, username, self) {
 });
 
 // Catch when someone leaves a channel
-TwitchBot.on('part', function(channel, username, self) {
+TwitchBot.on('part', (channel, username, self) => {
     if (self) {
         return;
     }
 
     // Keep track of the people in this channel
-    let index = channelUserList[channel].indexOf(username);
+    const index = channelUserList[channel].indexOf(username);
     if (index > -1) {
         channelUserList[channel].splice(index, 1);
     } else {
-        console.error('User "' + username + '" left channel "' + channel + '", but they were not in the channelUserList array.');
+        logger.error(`User "${username}" left channel "${channel}", but they were not in the channelUserList array.`);
     }
 });
